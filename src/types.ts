@@ -1,4 +1,3 @@
-// Define enums and types
 export enum IssueType {
   PAYMENT_RELATED = "Payment Related",
   MUTUAL_FUND_RELATED = "Mutual Fund Related",

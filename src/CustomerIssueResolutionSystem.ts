@@ -1,10 +1,15 @@
 import { Issue, Agent, IssueType, IssueStatus, IssueFilter } from "./types";
+import { IssueManager } from "./IssueManager";
+import { AgentManager } from "./AgentManager";
 
 export class CustomerIssueResolutionSystem {
-  private issues: Map<string, Issue> = new Map();
-  private agents: Map<string, Agent> = new Map();
-  private issueCounter: number = 0;
-  private agentCounter: number = 0;
+  private issueManager: IssueManager;
+  private agentManager: AgentManager;
+
+  constructor() {
+    this.issueManager = new IssueManager();
+    this.agentManager = new AgentManager();
+  }
 
   createIssue(
     transactionId: string,
@@ -13,25 +18,13 @@ export class CustomerIssueResolutionSystem {
     description: string,
     email: string
   ): string {
-    const issueId = `I${++this.issueCounter}`;
-
-    const newIssue: Issue = {
-      id: issueId,
+    return this.issueManager.createIssue(
       transactionId,
-      type: issueType,
+      issueType,
       subject,
       description,
-      customerEmail: email,
-      status: IssueStatus.OPEN,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    this.issues.set(issueId, newIssue);
-    console.log(
-      `Issue ${issueId} created against transaction "${transactionId}"`
+      email
     );
-    return issueId;
   }
 
   addAgent(
@@ -39,24 +32,11 @@ export class CustomerIssueResolutionSystem {
     agentName: string,
     expertiseTypes: IssueType[]
   ): string {
-    const agentId = `A${++this.agentCounter}`;
-
-    const newAgent: Agent = {
-      id: agentId,
-      email: agentEmail,
-      name: agentName,
-      expertiseTypes,
-      waitlist: [],
-      issuesWorkedOn: [],
-    };
-
-    this.agents.set(agentId, newAgent);
-    console.log(`Agent ${agentId} created`);
-    return agentId;
+    return this.agentManager.addAgent(agentEmail, agentName, expertiseTypes);
   }
 
   assignIssue(issueId: string): void {
-    const issue = this.issues.get(issueId);
+    const issue = this.issueManager.getIssue(issueId);
 
     if (!issue) {
       console.log(`Issue ${issueId} not found`);
@@ -64,96 +44,74 @@ export class CustomerIssueResolutionSystem {
     }
 
     if (issue.assignedAgent) {
-      console.log(
-        `Issue ${issueId} is already assigned to agent ${issue.assignedAgent}`
-      );
+      console.log(`Issue ${issueId} is already with  ${issue.assignedAgent}`);
       return;
     }
 
-    const availableAgents = Array.from(this.agents.values()).filter(
+    const allAgents = this.agentManager.getAllAgents();
+    const availableAgents = allAgents.filter(
       (agent) =>
         agent.expertiseTypes.includes(issue.type) && !agent.currentIssue
     );
 
     if (availableAgents.length > 0) {
       const agent = availableAgents[0];
-      issue.assignedAgent = agent.id;
-      issue.status = IssueStatus.IN_PROGRESS;
-      issue.updatedAt = new Date();
-      agent.currentIssue = issueId;
-      agent.issuesWorkedOn.push(issueId);
 
-      this.issues.set(issueId, issue);
-      this.agents.set(agent.id, agent);
+      this.issueManager.updateIssue(issueId, {
+        assignedAgent: agent.id,
+        status: IssueStatus.IN_PROGRESS,
+      });
 
-      console.log(`Issue ${issueId} assigned to agent ${agent.id}`);
+      this.agentManager.updateAgent(agent.id, {
+        currentIssue: issueId,
+        issuesWorkedOn: [...agent.issuesWorkedOn, issueId],
+      });
+
+      console.log(`Assigned ${issueId} to ${agent.id}`);
     } else {
-      const expertAgents = Array.from(this.agents.values()).filter((agent) =>
+      const expertAgents = allAgents.filter((agent) =>
         agent.expertiseTypes.includes(issue.type)
       );
 
       if (expertAgents.length > 0) {
         const agent = expertAgents[0];
-        agent.waitlist.push(issueId);
-        this.agents.set(agent.id, agent);
-        console.log(`Issue ${issueId} added to waitlist of Agent ${agent.id}`);
+
+        this.agentManager.updateAgent(agent.id, {
+          waitlist: [...agent.waitlist, issueId],
+        });
+
+        console.log(`Added issue ${issueId} to ${agent.id} waitlist`);
       } else {
-        console.log(`No agent with expertise in ${issue.type} found`);
+        console.log(`Suitable agents not found,${issue.id}`);
       }
     }
   }
 
   getIssues(filter: IssueFilter): Issue[] {
-    const result: Issue[] = [];
-
-    for (const issue of this.issues.values()) {
-      let matches = true;
-
-      if (filter.email && issue.customerEmail !== filter.email) {
-        matches = false;
-      }
-
-      if (filter.type && issue.type !== filter.type) {
-        matches = false;
-      }
-
-      if (filter.status && issue.status !== filter.status) {
-        matches = false;
-      }
-
-      if (filter.agentId && issue.assignedAgent !== filter.agentId) {
-        matches = false;
-      }
-
-      if (matches) {
-        result.push(issue);
-      }
-    }
-
-    return result;
+    const allIssues = this.issueManager.getAllIssues();
+    return allIssues.filter((issue) => {
+      if (filter.email && issue.customerEmail !== filter.email) return false;
+      if (filter.type && issue.type !== filter.type) return false;
+      if (filter.status && issue.status !== filter.status) return false;
+      if (filter.agentId && issue.assignedAgent !== filter.agentId)
+        return false;
+      return true;
+    });
   }
 
   updateIssue(issueId: string, status: IssueStatus, resolution?: string): void {
-    const issue = this.issues.get(issueId);
+    const updated = this.issueManager.updateIssue(issueId, {
+      status,
+      resolution,
+    });
 
-    if (!issue) {
-      console.log(`Issue ${issueId} not found`);
-      return;
+    if (updated) {
+      console.log(`Updated issue ${issueId} to ${status}`);
     }
-
-    issue.status = status;
-    if (resolution) {
-      issue.resolution = resolution;
-    }
-    issue.updatedAt = new Date();
-
-    this.issues.set(issueId, issue);
-    console.log(`Issue ${issueId} status updated to ${status}`);
   }
 
-  // Resolve an issue
   resolveIssue(issueId: string, resolution: string): void {
-    const issue = this.issues.get(issueId);
+    const issue = this.issueManager.getIssue(issueId);
 
     if (!issue) {
       console.log(`Issue ${issueId} not found`);
@@ -161,50 +119,50 @@ export class CustomerIssueResolutionSystem {
     }
 
     if (!issue.assignedAgent) {
-      console.log(`Issue ${issueId} is not assigned to any agent`);
+      console.log(`Issue ${issueId} is not assigned!`);
       return;
     }
 
-    const agent = this.agents.get(issue.assignedAgent);
+    const agent = this.agentManager.getAgent(issue.assignedAgent);
 
     if (!agent) {
       console.log(`Agent ${issue.assignedAgent} not found`);
       return;
     }
 
-    issue.status = IssueStatus.RESOLVED;
-    issue.resolution = resolution;
-    issue.updatedAt = new Date();
-    this.issues.set(issueId, issue);
+    this.issueManager.updateIssue(issueId, {
+      status: IssueStatus.RESOLVED,
+      resolution,
+    });
 
-    agent.currentIssue = undefined;
+    const agentUpdates: Partial<Agent> = {
+      currentIssue: undefined,
+    };
 
     if (agent.waitlist.length > 0) {
-      const nextIssueId = agent.waitlist.shift()!;
-      const nextIssue = this.issues.get(nextIssueId);
+      const nextIssueId = agent.waitlist[0];
+      const nextIssue = this.issueManager.getIssue(nextIssueId);
 
       if (nextIssue) {
-        nextIssue.assignedAgent = agent.id;
-        nextIssue.status = IssueStatus.IN_PROGRESS;
-        nextIssue.updatedAt = new Date();
-        this.issues.set(nextIssueId, nextIssue);
+        this.issueManager.updateIssue(nextIssueId, {
+          assignedAgent: agent.id,
+          status: IssueStatus.IN_PROGRESS,
+        });
 
-        agent.currentIssue = nextIssueId;
-        agent.issuesWorkedOn.push(nextIssueId);
-        console.log(
-          `Agent ${agent.id} assigned to next issue ${nextIssueId} from waitlist`
-        );
+        agentUpdates.currentIssue = nextIssueId;
+        agentUpdates.waitlist = agent.waitlist.slice(1);
+        agentUpdates.issuesWorkedOn = [...agent.issuesWorkedOn, nextIssueId];
       }
     }
 
-    this.agents.set(agent.id, agent);
-    console.log(`Issue ${issueId} marked resolved`);
+    this.agentManager.updateAgent(agent.id, agentUpdates);
   }
 
   viewAgentsWorkHistory(): Record<string, string[]> {
     const workHistory: Record<string, string[]> = {};
+    const allAgents = this.agentManager.getAllAgents();
 
-    for (const agent of this.agents.values()) {
+    for (const agent of allAgents) {
       workHistory[agent.id] = agent.issuesWorkedOn;
     }
 
